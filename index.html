@@ -24,11 +24,14 @@
 
 <body>
   <button id="ar-button">Start</button>
+  <script src="colors1000.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.11/dist/gsap.min.js"></script>
   <script type="module">
     // import * as THREE from './libs/three.js-r132/build/three.module.js'
     import * as THREE from './three.module.js'
     // import * as THREE from 'https://unpkg.com/browse/three@0.132.2/build/three.module.js'
     // console.log(THREE)
+    // console.log(gsap)
 
     document.addEventListener('DOMContentLoaded', () => {
       const initialize = async () => {
@@ -42,30 +45,144 @@
           return;
         }
 
+        const palette = colors[Math.floor(Math.random() * colors.length)]
+        // console.log(palette)
+
         const w = window.innerWidth
         const h = window.innerHeight
 
         const scene = new THREE.Scene()
         const camera = new THREE.PerspectiveCamera()
+        // camera.position.set(2, 2, -2);
 
         const renderer = new THREE.WebGLRenderer({ alpha: true })
         renderer.setSize(w, h)
         renderer.setPixelRatio(window.devicePixelRatio)
         document.body.appendChild(renderer.domElement)
 
-        // WebXR 里 1 unit length = 现实中 1 米
-        // const geometry = new THREE.BoxGeometry(0.06, 0.06, 0.06)
-        const geometry = new THREE.BoxGeometry(0.06, 0.06, 0.06)
-        // const geometry = new THREE.SphereGeometry(0.06)
-        const material = new THREE.MeshBasicMaterial({ color: 0xff00ff })
-        const mesh = new THREE.Mesh(geometry, material)
-        mesh.rotation.set(-Math.PI / 2, 0, 0)
-        // mesh.position.set(0, 0, -0.3)
-        mesh.position.set(0, 0, -1)
-        scene.add(mesh)
+        const vertex = /* GLSL */ `
+          uniform float uTime;
 
-        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1)
-        scene.add(light)
+          varying vec2 vUv;
+          varying vec3 vPosition;
+          varying vec3 vInstanceColor;
+
+          attribute float aRandom;
+
+
+          float PI = 3.141592653589793238;
+          // const float PI = 3.141592653589793238;
+
+          void main() {
+            vUv = uv;
+            vPosition = position;
+            vInstanceColor = instanceColor;
+
+            // vec3 newPos = position * aRandom;
+            vec3 newPos = position * abs(sin(position.x * 10.0 + uTime / 4.0));
+
+            gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(newPos, 1.0);
+          }
+        `
+
+        const fragment = /* GLSL */ `
+          uniform float uTime;
+
+          varying vec2 vUv;
+          varying vec3 vPosition;
+          varying vec3 vInstanceColor;
+
+          float PI = 3.141592653589793238;
+          // const float PI = 3.141592653589793238;
+
+          void main() {
+            // gl_FragColor = vec4(1., 0., 0.0, 1.0);
+            // gl_FragColor = vec4(vUv, 0.0, 1.0);
+            gl_FragColor = vec4(vInstanceColor, 1.0);
+          }
+        `
+
+        // WebXR 里 1 unit length = 现实中 1 米
+        const size = 0.05 // 0.06
+        const geometry = new THREE.BoxGeometry(size, size, size)
+        // // const geometry = new THREE.SphereGeometry(0.06)
+        // const material = new THREE.MeshBasicMaterial({ color: 0xff00ff})
+        // const mesh = new THREE.Mesh(geometry, material)
+        // mesh.rotation.set(-Math.PI / 2, 0, 0)
+        // // mesh.position.set(0, 0, -0.3)
+        // mesh.position.set(0, 0, -1)
+        // scene.add(mesh)
+
+        const material = new THREE.ShaderMaterial({
+          uniforms: {
+            uTime: { value: 0 },
+          },
+          vertexShader: vertex,
+          fragmentShader: fragment,
+        });
+
+        const meshes = []
+        const count = 10
+        const mesh = new THREE.InstancedMesh(geometry, material, count ** 3)
+
+        const random = new Float32Array(count ** 3);
+
+        const matrix = new THREE.Matrix4()
+        // const color = new THREE.Color()
+
+        let i = 0
+        for (let x = 0; x < count; x++) {
+          for (let y = 0; y < count; y++) {
+            for (let z = 0; z < count; z++) {
+              matrix.setPosition((x - count / 2) * size, (y - count / 2) * size, (z - count / 2) * size)
+              mesh.setMatrixAt(i, matrix)
+
+              random[i] = Math.random();
+              const color = new THREE.Color(palette[Math.floor(Math.random() * palette.length)])
+              mesh.setColorAt(i, color)
+              mesh.instanceColor.needsUpdate = true
+              i++;
+            }
+          }
+        }
+
+        geometry.setAttribute(
+          "aRandom",
+          new THREE.InstancedBufferAttribute(random, 1)
+        );
+
+        scene.add(mesh);
+
+        // for (let i = 0; i < count; i++) {
+        //   for (let j = 0; j < count; j++) {
+        //     const mesh = new THREE.Mesh(geometry, material);
+        //     // mesh.position.x = i * 1.2 - count / 2;
+        //     // mesh.position.z = j * 1.2 - count / 2;
+        //     mesh.position.x = (i - count / 2) * (size * 1.2)
+        //     mesh.position.z = (j - count / 2) * (size * 1.2)
+        //     // 也可以先从 0.1 开始，通过 gsap stagger 渐次变成 1
+        //     // mesh.scale.x = mesh.scale.y = mesh.scale.z = 0.1;
+        //     scene.add(mesh);
+        //     // meshes.push(mesh);
+        //     meshes.push(mesh.scale);
+        //   }
+        // }
+
+        // const tl = gsap.timeline({ repeat: -1, repeatDelay: 0, yoyo: true });
+        // tl.to(meshes, {
+        //   duration: 1,
+        //   x: 0.5,
+        //   y: 0.5,
+        //   z: 0.5,
+        //   stagger: {
+        //     grid: [count, count],
+        //     from: "center",
+        //     amount: 1.5,
+        //   },
+        // });
+
+        // const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1)
+        // scene.add(light)
 
         // WebXR 需要用户交互才能开启，通过 button click 触发 start
         let currentSession = null
@@ -87,8 +204,11 @@
 
           arButton.textContent = 'End'
 
+          let time = 0
           renderer.setAnimationLoop(() => {
             renderer.render(scene, camera)
+            time += 0.05
+            material.uniforms.uTime.value = time
           })
         }
 
